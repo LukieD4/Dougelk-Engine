@@ -2,7 +2,6 @@ import pygame, os, sys
 
 from py_resource import resource
 
-
 class App:
 
 
@@ -23,6 +22,9 @@ class App:
 
         pygame.display.set_caption(self.app_name)
 
+        self.__exe_spoof = resource._set_exe_spoof(enabled=False) # // DEV USE ONLY: Set to True to simulate running as an EXE (useful for testing resource path issues and version file handling during development)
+
+
         print(f"App initialized: {self.app_name} by {', '.join(self.app_authors)} - {self.app_description}")
 
 
@@ -40,10 +42,6 @@ class App:
 
 
 
-
-
-
-
     @staticmethod
     def window_centre(enabled=True):
         """Utility function to centre the Pygame window on the screen.
@@ -53,8 +51,8 @@ class App:
         """
         os.environ['SDL_VIDEO_CENTERED'] = str(enabled)
 
-    @staticmethod
-    def running_as_exe():
+
+    def running_as_exe(self):
         """Checks if the program is currently running as an executable build.
 
         Returns:
@@ -63,7 +61,7 @@ class App:
         """
 
         #// PyInstaller check              // Nuitka check
-        if getattr(sys, "frozen", False) or "__compiled__" in globals():
+        if getattr(sys, "frozen", False) or "__compiled__" in globals() or self.__exe_spoof:
             return True
 
         return False
@@ -109,7 +107,33 @@ class App:
         except Exception as e:
             print(f"set_always_on_top : WARN : Could not set always on top: {e}")
     
-    def increment_build_version(self, ignore_exe_check=False):
+    def build_version_solve(self):
+        """Reads the current build version from a file.
+
+        This function is designed to manage the `<Gamename>Build.version` filename, which
+        is used to track the build version of the application. It reads the
+        version number from the file and returns it as an integer.
+
+        Returns:
+            int: The current build version number.
+        """
+        try:
+            with open(resource.resource_path(f"{self.app_name}Build.version")) as f:
+                build_version = self.build_version_increment_within_IDE(dev_ignore_exe_check=False)
+
+                if build_version is None:
+                    data = f.read().strip()
+                    build_version = int(data) if data else 0
+
+                print(f"[py_app] : build_version_solve : Read version from file: {build_version}")
+                return int(build_version) if build_version is not None else -1
+
+        except FileNotFoundError:
+            print(f"[py_app] : build_version_solve : File not found")
+            return -101
+        
+
+    def build_version_increment_within_IDE(self, dev_ignore_exe_check=False):
         """
         Reads the current build version from a file, increments it by one,
         and writes the new version number back to the file.
@@ -117,7 +141,7 @@ class App:
         This function is designed to manage the `Build.version` filename.
 
         Args:
-            ignore_exe_check (bool): If True, bypasses the check for running 
+            dev_ignore_exe_check (bool): If True, bypasses the check for running 
                                       as an executable (useful for testing).
 
         Returns:
@@ -127,7 +151,7 @@ class App:
             FileNotFoundError: If the version file does not exist and cannot be created.
         """
 
-        if not self.running_as_exe() or ignore_exe_check:
+        if not self.running_as_exe() or dev_ignore_exe_check:
             try:
                 with open(self.filename_gamebuildversion, "r+") as f:
                     old = f.read().strip()

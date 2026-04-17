@@ -46,7 +46,7 @@ def loadSprite(spritesheet, pos=(-100, -100)):
         image = pygame.image.load(path).convert_alpha()
     except Exception as e:
         print(f"[loadSprite] Failed to load {spritesheet[0]}: {e}")
-        fallback = resource.resource_path("sprites/missing.png")
+        fallback = resource.resource_path("assets/sprites/missing.png")
         image = pygame.image.load(str(fallback)).convert_alpha()
     return image
 

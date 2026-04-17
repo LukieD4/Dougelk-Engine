@@ -11,6 +11,12 @@ set SRCDIR=%~dp0
 set DISTDIR=builds
 set TARGET_EXE=%DISTDIR%\%PROJECT_NAME%.exe
 
+@REM Warning: Changing this could cause the compiler to break.
+@REM          make sure it matches your PROJECT_NAME.
+set VERSION_FILE=%PROJECT_NAME%Build.version
+
+
+
 REM --- METADATA (USER EDITABLE)
 set COMPANY_NAME=NAME
 set PRODUCT_NAME=%PROJECT_NAME%
@@ -175,6 +181,7 @@ echo [INFO] Building %PROJECT_NAME%...
 --windows-file-description="%FILE_DESCRIPTION%" ^
 --windows-console-mode=attach ^
 --include-data-dir=assets=assets ^
+--include-data-file="%VERSION_FILE%=%VERSION_FILE%" ^
 --nofollow-import-to=tkinter,unittest,pytest,setuptools,IPython,dask,numpy,matplotlib,pandas,scipy,PIL.ImageQt ^
 --lto=yes ^
 --jobs=%NUMBER_OF_PROCESSORS% ^

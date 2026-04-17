@@ -31,7 +31,7 @@ class SoundMixer:
             pygame.mixer.init()
             self._initialized = True
         except Exception as e:
-            print(f"[SoundMixer] Failed to initialize mixer: {e}")
+            print(f"[py_soundmixer] : Failed to initialize mixer: {e}")
 
     def _load_sound(self, name: str, relative_path: str):
         """
@@ -47,7 +47,7 @@ class SoundMixer:
         path = resource.resource_path(relative_path)
 
         if not path.exists():
-            print(f"[SoundMixer] Missing sound file: {path}")
+            print(f"[py_soundmixer] : Missing sound file: {path}")
             return None
 
         key = (name, str(path))
@@ -56,7 +56,7 @@ class SoundMixer:
             try:
                 self.sounds[key] = pygame.mixer.Sound(str(path))
             except Exception as e:
-                print(f"[SoundMixer] Failed to load {path}: {e}")
+                print(f"[py_soundmixer] : Failed to load {path}: {e}")
                 return None
 
         return self.sounds[key]
@@ -76,7 +76,7 @@ class SoundMixer:
         path = resource.resource_path(relative_path)
 
         if not path.exists():
-            print(f"[SoundMixer] Missing music file: {path}")
+            print(f"[py_soundmixer] : Missing music file: {path}")
             return None, None
 
         key = (name, str(path))
@@ -111,7 +111,7 @@ class SoundMixer:
                 self._music = key
                 self._paused.discard(key)
             except Exception as e:
-                print(f"[SoundMixer] Failed to play music '{name}': {e}")
+                print(f"[py_soundmixer] : Failed to play music '{name}': {e}")
             return
 
         sound = self._load_sound(name, relative_path)
@@ -126,7 +126,7 @@ class SoundMixer:
                 key = (name, str(resource.resource_path(relative_path)))
                 self._channels[key] = channel
         except Exception as e:
-            print(f"[SoundMixer] Failed to play '{name}': {e}")
+            print(f"[py_soundmixer] : Failed to play '{name}': {e}")
 
     def pause(self, name: str, unpause_only: bool = False, pause_only: bool = False):
         """

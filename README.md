@@ -17,7 +17,9 @@ It was later adapted and expanded from:
 `<Class: Sprite>.team` is used alot to process behaviour.  
 
 `py_sprites.py` allows for the creation of custom entities.
-`<Class: Sprite>.ticker()` increments per frame to provide tracking and movement throughout.
+`<Class: Sprite>.ticker()` increments per frame to provide tracking and movement throughout.  
+  
+`<Game>.exe` will unpack all assets to %TEMP%/< gamename> when ran. 
 
 
 `assets/stages/spritemaker.py` to build Stages; a level maker.

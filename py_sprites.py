@@ -9,7 +9,8 @@ from py_render import loadSprite, scaleSprite, grid_to_pixel, pixel_to_grid
 from py_config import config
 
 # Directories
-sprites_dir = resource.resource_path("sprites")
+assets_dir = resource.resource_path("assets")
+sprites_dir = assets_dir / "sprites"
 actor_dir = sprites_dir / "actor"
 object_dir = sprites_dir / "object"
 

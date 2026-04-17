@@ -25,7 +25,7 @@ class ClientGame:
 
     def __init__(self):
     
-        self.__BUILD_VER = f"{app.increment_build_version()}"
+        self.__BUILD_VER = f"{app.build_version_solve()}"
 
         # --- entities ---
         self.entities = {
@@ -145,7 +145,7 @@ class ClientGame:
         self.main_menu_dog_clicks = 0
 
         soundMixer.stop("select")
-        soundMixer.play("select", "audio/select.ogg", vol_mult=self._game_settings_volume_multiplier*.1, loops=0)
+        soundMixer.play("select", "assets/audio/select.ogg", vol_mult=self._game_settings_volume_multiplier*.1, loops=0)
 
 
     def updateMainMenu(self):
@@ -160,7 +160,7 @@ class ClientGame:
             self.main_menu_invoke_resolution_changed = False
 
             # Load stage and entities
-            self.entities = self.entities_append(self.stager.load_stage(resource.resource_path("stages/example.stage")))
+            self.entities = self.entities_append(self.stager.load_stage(resource.resource_path("assets/stages/example.stage")))
             
             pass
         
@@ -175,7 +175,7 @@ class ClientGame:
                 entity60.task_upon_click()
                 entity60.mark_mouse_clicked = False
                 self.main_menu_dog_clicks += 1
-                soundMixer.play("bark","audio/woof.mp3")
+                soundMixer.play("bark","assets/audio/woof.mp3")
             
             if hasattr(entity60, 'mark_to_drop') and entity60.mark_to_drop:
                 self.entities["actors"].append(
@@ -186,7 +186,7 @@ class ClientGame:
                     )
                 )
                 entity60.mark_to_drop = False
-                soundMixer.play("drop", f"audio/immature{randint(1, 2)}.mp3", vol_mult=self._game_settings_volume_multiplier*.1)
+                soundMixer.play("drop", f"assets/audio/immature{randint(1, 2)}.mp3", vol_mult=self._game_settings_volume_multiplier*.1)
         
 
         if self.main_menu_dog_clicks > 0:
@@ -214,11 +214,13 @@ class ClientGame:
 ``~#Press F3 to unlock/lock fps
 ``~#Press F4 to set custom fps
 ``~#Press F5 to set custom impact ms
+``~GREENPress IO to rescale window: {config.resolution_scale}x ~#
 ````TRY THIS!
 ``Connect a controller!
 ``~(ltsu) ~(ltsr) ~(ltsd) ~(ltsl) ~(rtsu) ~(rtsr) ~(rtsd) ~(rtsl)
 `~(return) ~(r) ~(t) ~(u)
 """
+        
         
         self.__client_ui_cached_text = self._render_ui_and_prioritise_cache(onscreen_text,self.__client_ui_cached_text)
         pass
@@ -316,6 +318,7 @@ class ClientGame:
                 self.main_menu_invoke_resolution_changed = True
                 self.entities["__internal_mouse__"].clear()
                 app.window_always_on_top(enabled=app.WINDOWS_ALWAYS_ON_TOP) #reapplies to the new game window
+                self._invalidate_ui_caches()
             
             # If 'mode' changed, update inputManager
             if self.__mode_old != self.mode:

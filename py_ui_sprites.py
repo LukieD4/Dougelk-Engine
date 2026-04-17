@@ -10,7 +10,8 @@ from py_numpy_slim import copy as np_copy
 
 
 # Paths
-sprites_dir = resource.resource_path("sprites")
+assets_dir = resource.resource_path("assets")
+sprites_dir = assets_dir / "sprites"
 fonts_dir = sprites_dir / "font"
 
 # -------------------------
@@ -28,6 +29,8 @@ TRANSLATION_TABLE = {
     "?": "Question",
     ".": "Fullstop",
     "/": "Slashfwd",
+    ":": "Colon",
+    ";": "Semicolon",
     "0": "Zero",
     "1": "One",
     "2": "Two",
