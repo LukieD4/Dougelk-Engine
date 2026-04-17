@@ -1,0 +1,539 @@
+import time, threading
+
+import py_numpy_slim as np
+
+from py_resource import resource
+from py_sprites import Sprite
+from py_config import config
+from py_input import inputManager
+from py_numpy_slim import copy as np_copy
+
+
+# Paths
+sprites_dir = resource.resource_path("sprites")
+fonts_dir = sprites_dir / "font"
+
+# -------------------------
+# Constants and lookup tables
+# -------------------------
+
+# Map special characters and digits to class names (used by translateIntoClass)
+TRANSLATION_TABLE = {
+    "*": "Asterix",
+    "-": "Dash",
+    "_": "Under",
+    "=": "Equal",
+    "<": "Less",
+    ">": "Great",
+    "?": "Question",
+    ".": "Fullstop",
+    "/": "Slashfwd",
+    "0": "Zero",
+    "1": "One",
+    "2": "Two",
+    "3": "Three",
+    "4": "Four",
+    "5": "Five",
+    "6": "Six",
+    "7": "Seven",
+    "8": "Eight",
+    "9": "Nine",
+}
+
+# Abbreviations for long literal keys used by the text renderer in keyboard mode
+ABBREVIATION_TABLE = {
+    "escape": "esc",
+    "return": "",
+
+    # Thumbstick nullifier
+    "ltsp": "",
+    "ltsu": "",
+    "ltsr": "",
+    "ltsd": "",
+    "ltsl": "",
+    "rtsp": "",
+    "rtsu": "",
+    "rtsr": "",
+    "rtsd": "",
+    "rtsl": "",
+    # add more as needed: "backspace": "bsp", "enter": "ent", etc.
+}
+
+# Special sentinel used to represent a real space cell in the grid
+REAL_SPACE = object()
+
+# Inline colour codes used in text strings
+NAMED_COLOURS = {
+    "RED": (255, 0, 0),
+    "GREEN": (0, 255, 0),
+    "YELLOW": (255, 255, 0),
+    "BLUE": (0, 0, 255),
+    "MAGENTA": (255, 0, 255),
+    "CYAN": (0, 255, 255),
+    "WHITE": (255, 255, 255),
+    "BLACK": (0, 0, 0),
+    "#": None,
+}
+
+colour_CODES = {
+    ":": (255, 0, 0),      # red
+    "#": (0, 255, 0),      # green
+    "@": (255, 255, 0),    # yellow
+    "&": None,             # reset / default
+}
+
+
+# -------------------------
+# UI base class
+# -------------------------
+
+class UI(Sprite):
+    """
+    Base UI sprite class for rendering text into a fixed grid.
+    Each cell holds either:
+      - a glyph instance (subclass of UI created dynamically),
+      - REAL_SPACE sentinel,
+      - or None for empty.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.team = "ui"
+        self.text_array = self.clear()
+        self.previous_text_array = np_copy(self.text_array)
+        self.current_colour = None
+        self.justification = "centre"  # left, right, centre, full
+
+    def clear(self):
+        """Reset the text grid to empty (None) cells."""
+        self.text_array = np.full((config.MAX_ROW, config.MAX_COL), None)
+        return self.text_array
+
+    def translateIntoClass(self, char: str):
+        """
+        Convert a single character into its corresponding glyph class instance.
+        Returns REAL_SPACE for a space character, or None if no glyph exists.
+        """
+        if char == " ":
+            return REAL_SPACE
+
+        key = char.upper()
+        key = TRANSLATION_TABLE.get(char, key)
+        cls = globals().get(key)
+        if not cls:
+            return None
+
+        instance = cls()
+        instance.colour_override = self.current_colour
+        return instance
+
+    # -------------------------
+    # Main text rendering
+    # -------------------------
+
+    def changeText(self, row=None, text=None, skip_justify=False):
+        """
+        Render `text` into the internal grid.
+
+        Supported formatting:
+          - ~(literal_key) : dynamic input token (controller icon or expanded keyboard text)
+          - colour codes: :, #, @, & (reset)
+          - backtick ` : newline
+          - tab ¬ : insert 4 spaces
+        """
+        if not text:
+            return
+
+        # Start at top if no row specified
+        if row is None:
+            self.clear()
+            row = 0
+
+        self.current_colour = None
+        col = 0
+        i = 0
+        length = len(text)
+
+        while i < length:
+            if row >= config.MAX_ROW:
+                break
+
+            ch = text[i]
+
+            # Format token starting with ~
+            if ch == "~":
+
+                # -----------------------------------------
+                # Case 0: colour nullify token ~#
+                # -----------------------------------------
+                if i + 1 < length and text[i + 1] == "#":
+                    self.current_colour = None
+                    i += 2
+                    continue
+
+                # -----------------------------------------
+                # Case 1: dynamic literal ~(...)
+                # -----------------------------------------
+                if i + 1 < length and text[i + 1] == "(":
+                    end = text.find(")", i + 2)
+                    if end != -1:
+                        literal_key = text[i + 2:end]
+
+                        # LONG LITERAL KEYS
+                        if len(literal_key) > 1:
+                            if inputManager.last_input_method != "Default":
+                                dyn = DynamicInput()
+                                dyn.update_sprite(literal_key)
+                                self.text_array[row][col] = dyn
+                                col += 1
+                                i = end + 1
+                                continue
+
+                            expanded = ABBREVIATION_TABLE.get(literal_key.lower(), literal_key.lower())
+                            for ch2 in expanded.upper():
+                                if col >= config.MAX_COL:
+                                    row += 1
+                                    col = 0
+                                    if row >= config.MAX_ROW:
+                                        break
+                                self.text_array[row][col] = self.translateIntoClass(ch2)
+                                col += 1
+
+                            i = end + 1
+                            continue
+
+                        # SINGLE-CHAR LITERAL
+                        dyn = DynamicInput()
+                        dyn.update_sprite(literal_key)
+                        self.text_array[row][col] = dyn
+                        col += 1
+                        i = end + 1
+                        continue
+
+                # -----------------------------------------
+                # Case 2: named colour token ~RED / ~GREEN / ~RESET
+                # -----------------------------------------
+                j = i + 1
+
+                # Scan ahead until a non-letter OR end of string
+                while j < length and text[j].isalpha():
+                    j += 1
+
+                token = text[i + 1:j].upper()
+
+                # Try to match the longest valid colour prefix
+                matched = None
+                for name in NAMED_COLOURS.keys():
+                    if token.startswith(name):
+                        matched = name
+                        break
+
+                if matched is not None:
+                    self.current_colour = NAMED_COLOURS[matched]
+                    i += 1 + len(matched)
+                    continue
+
+
+                # -----------------------------------------
+                # Unknown ~TOKEN → treat '~' as literal
+                # -----------------------------------------
+
+
+            # Newline/backtick
+            if ch == "`":
+                row += 1
+                if row < config.MAX_ROW:
+                    self.text_array[row].fill(None)
+                col = 0
+                i += 1
+                continue
+
+            # Tab (insert 4 spaces)
+            if ch == "¬":
+                for _ in range(4):
+                    if col >= config.MAX_COL:
+                        row += 1
+                        col = 0
+                    if row >= config.MAX_ROW:
+                        break
+                    col += 1
+                i += 1
+                continue
+
+            # Regular character
+            if col < config.MAX_COL:
+                self.text_array[row][col] = self.translateIntoClass(ch)
+                col += 1
+
+            # Auto-wrap
+            if col >= config.MAX_COL:
+                row += 1
+                col = 0
+
+            i += 1
+
+        # Apply justification unless explicitly skipped
+        if not skip_justify:
+            for r in range(config.MAX_ROW):
+                self.text_array[r] = self.justify_row(self.text_array[r])
+
+        self.previous_text_array = np_copy(self.text_array)
+        return self.text_array
+
+    # -------------------------
+    # Justification helpers
+    # -------------------------
+
+    def set_justification(self, mode: str):
+        if mode in ("left", "right", "centre", "full"):
+            self.justification = mode
+
+    def justify_row(self, row_data):
+        """Return a new row array with the chosen justification applied."""
+        max_col = config.MAX_COL
+
+        def is_real_space(g):
+            return g is REAL_SPACE
+
+        glyphs = [g for g in row_data if g is not None]
+        count = len(glyphs)
+
+        if count == 0:
+            return row_data
+
+        # Left
+        if self.justification == "left":
+            new_row = np.full(max_col, None)
+            new_row[:count] = glyphs
+            return new_row
+
+        # Right
+        if self.justification == "right":
+            new_row = np.full(max_col, None)
+            new_row[max_col - count:] = glyphs
+            return new_row
+
+        # Centre
+        if self.justification == "centre":
+            new_row = np.full(max_col, None)
+            start = (max_col - count) // 2
+            new_row[start:start + count] = glyphs
+            return new_row
+
+        # Full justify
+        if self.justification == "full":
+            if count <= 1:
+                new_row = np.full(max_col, None)
+                new_row[:count] = glyphs
+                return new_row
+
+            # Count gaps between non-space glyphs
+            gaps = 0
+            for i in range(count - 1):
+                if not is_real_space(glyphs[i]) and not is_real_space(glyphs[i + 1]):
+                    gaps += 1
+
+            if gaps == 0:
+                new_row = np.full(max_col, None)
+                new_row[:count] = glyphs
+                return new_row
+
+            total_spaces = max_col - count
+            base_space = total_spaces // gaps
+            extra = total_spaces % gaps
+
+            new_row = []
+            gap_index = 0
+
+            for i, g in enumerate(glyphs):
+                new_row.append(g)
+                if i < count - 1:
+                    if not is_real_space(g) and not is_real_space(glyphs[i + 1]):
+                        for _ in range(base_space + (1 if gap_index < extra else 0)):
+                            new_row.append(None)
+                        gap_index += 1
+
+            return np.asarray(new_row[:max_col])
+
+# -------------------------
+# Dynamic input glyph
+# -------------------------
+
+class DynamicInput(UI):
+    """
+    Represents a single dynamic input glyph. In controller mode this becomes
+    a single controller icon (resolved via inputManager). In keyboard mode
+    the changeText() function expands long tokens into multiple glyphs, so
+    DynamicInput is only used for single-character tokens like ~(c).
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def update_sprite(self, default_bound_key: str):
+        """
+        Replace this glyph's spritesheet with the appropriate texture.
+        Controller mode: use controller icon (e.g., xbx_x.png).
+        Keyboard mode: leave to changeText expansion (no single 'ESCAPE.png' lookup).
+        """
+
+        if inputManager.last_input_method != "Default":
+            translated_key = inputManager.get_sprite_for_keyboard_key(default_bound_key)
+            if translated_key:
+                self.replace_spritesheet([[fonts_dir / f"{translated_key}.png"]])
+        else:
+            # In keyboard mode we do not attempt to load a single texture named
+            # after the long key (e.g., ESCAPE). changeText expands long keys
+            # into multiple glyphs; for single-letter tokens we can still show
+            # the letter texture if desired.
+
+            # Always inherit the active colour from the UI renderer
+            self.colour_override = spritesUI.current_colour
+
+            # Replace the spritesheet with keyboard equivalents
+            self.replace_spritesheet([[fonts_dir / f"{default_bound_key.upper()}.png"]])
+
+# -------------------------
+# Dynamic glyph class generation
+# -------------------------
+
+def make_class_name(filename: str) -> str:
+    """Convert a filename (e.g., 'a.png' or '0.png') into a class name."""
+    name = filename.replace(".png", "")
+    if name.isdigit():
+        digit_names = ["Zero", "One", "Two", "Three", "Four",
+                       "Five", "Six", "Seven", "Eight", "Nine"]
+        return digit_names[int(name)]
+    return name.capitalize()
+
+def make_init(filepath):
+    """Factory to create __init__ for dynamically generated glyph classes."""
+    def __init__(self):
+        super(type(self), self).__init__()
+        self.spritesheet = [[filepath]]
+        self.colour_override = None
+        self.team = "ui"
+    return __init__
+
+# Create glyph classes for each PNG in the font directory
+for file in fonts_dir.iterdir():
+    if file.suffix.lower() != ".png":
+        continue
+    class_name = make_class_name(file.name)
+    cls = type(class_name, (UI,), {"__init__": make_init(file)})
+    globals()[class_name] = cls
+
+# Singleton UI instance used by render_text()
+spritesUI = UI()
+
+# -------------------------
+# Public API
+# -------------------------
+
+last_render_epoch, lre_buffer, abc = time.time(), .01, 10
+
+# --- Background rendering helper objects ---
+class RenderFuture:
+    """
+    Simple future-like handle returned by background render requests.
+    - call .done() to check completion
+    - call .result(timeout=None) to block until result is ready (or raise exception)
+    - .exception() returns exception if one occurred, else None
+    """
+    def __init__(self):
+        self._event = threading.Event()
+        self._result = None
+        self._exc = None
+
+    def set_result(self, value):
+        self._result = value
+        self._event.set()
+
+    def set_exception(self, exc):
+        self._exc = exc
+        self._event.set()
+
+    def done(self):
+        return self._event.is_set()
+
+    def result(self, timeout=None):
+        finished = self._event.wait(timeout)
+        if not finished:
+            raise TimeoutError("RenderFuture: result not ready")
+        if self._exc:
+            raise self._exc
+        return self._result
+
+    def exception(self):
+        return self._exc
+
+def _render_text_sync(text: str, justification: str | None = "centre") -> list:
+    """
+    Internal synchronous renderer. This contains the original render logic
+    and is used by both the blocking API and the background worker.
+    """
+    # Safety fps checks:
+    global last_render_epoch, lre_buffer, abc
+    if last_render_epoch + lre_buffer > time.time():
+        print("ui_sprites : render_text : ⚠️  [WARNING] You are calling this method too often, consider caching your results! This will impact performance substancially")
+    last_render_epoch = time.time()
+
+    if justification is not None:
+        spritesUI.set_justification(justification)
+
+    text_array = spritesUI.changeText(text=text, skip_justify=(justification is None))
+    if text_array is None:
+        return []
+
+    rows, cols = text_array.shape
+    spawned_sprites = []
+
+    for r in range(rows):
+        for c in range(cols):
+            glyph = text_array[r][c]
+            if glyph is None or glyph is REAL_SPACE:
+                continue
+
+            colour = getattr(glyph, "colour_override", None)
+            spawned = glyph.summon(
+                target_row=r,
+                target_col=c,
+                screen=None,
+                colour=colour
+            )
+            spawned_sprites.append(spawned)
+
+    return spawned_sprites
+
+def render_text(text: str, justification: str | None = "centre") -> list:
+    """
+    Convert a formatted text string into a list of positioned sprite instances.
+    Returns an empty list if nothing to render.
+
+    This is the original synchronous API preserved for compatibility.
+    """
+    return _render_text_sync(text, justification)
+
+def render_text_background(text: str, justification: str | None = "centre") -> RenderFuture:
+    """
+    Enqueue a background render job and return a RenderFuture handle.
+
+    The background worker is implemented as a short-lived daemon thread per request.
+    The thread will exit automatically once the job completes (daemon ensures it
+    won't block process shutdown). Use .result() on the returned handle to obtain
+    the spawned sprites list when ready.
+    """
+    future = RenderFuture()
+
+    def _worker():
+        try:
+            result = _render_text_sync(text, justification)
+            future.set_result(result)
+        except Exception as e:
+            future.set_exception(e)
+
+    # Start a short-lived daemon thread for this render job.
+    # It will die as soon as the work completes.
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    return future
