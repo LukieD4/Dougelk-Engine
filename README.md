@@ -21,7 +21,9 @@ It was later adapted and expanded from:
   
 `<Game>.exe` will unpack all assets to %TEMP%/< gamename> when ran. 
 
-
+**Referencing assets now will use** %TEMP%/< gamename> as the base.  
+Please use `assets/somedir...` instead of `somedir/`.  
+  
 `assets/stages/spritemaker.py` to build Stages; a level maker.
 
 ## Credits
