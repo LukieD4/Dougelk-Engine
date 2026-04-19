@@ -2,3 +2,5 @@
 __pycache__
 builds
 Game.ini
+files.txt
+get all files with contents.py
